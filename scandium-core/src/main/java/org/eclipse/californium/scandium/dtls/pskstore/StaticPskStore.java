@@ -19,6 +19,7 @@ package org.eclipse.californium.scandium.dtls.pskstore;
 import java.net.InetSocketAddress;
 import java.util.Arrays;
 
+import org.eclipse.californium.scandium.dtls.PskPublicInformation;
 import org.eclipse.californium.scandium.util.ServerNames;
 
 /**
@@ -30,10 +31,14 @@ import org.eclipse.californium.scandium.util.ServerNames;
  * NB Keeping keys in in-memory is not a good idea for production. Instead, keys
  * should be kept in an encrypted store.
  */
-public class StaticPskStore implements PskStore {
+public class StaticPskStore implements BytesPskStore {
 
 	private final byte[] key;
-	private final String fixedIdentity;
+	private final PskPublicInformation fixedIdentity;
+
+	public StaticPskStore(final String identity, final byte[] key) {
+		this(new PskPublicInformation(identity), key);
+	}
 
 	/**
 	 * Creates a new store for an identity and key.
@@ -41,28 +46,34 @@ public class StaticPskStore implements PskStore {
 	 * @param identity The (single) identity to always use.
 	 * @param key The (single) key for the identity.
 	 */
-	public StaticPskStore(final String identity, final byte[] key) {
+	public StaticPskStore(final PskPublicInformation identity, final byte[] key) {
 		this.fixedIdentity = identity;
 		this.key = Arrays.copyOf(key, key.length);
 	}
 
 	@Override
-	public String getIdentity(final InetSocketAddress inetAddress) {
+	public PskPublicInformation getIdentity(final InetSocketAddress inetAddress) {
 		return fixedIdentity;
 	}
 
 	@Override
-	public String getIdentity(InetSocketAddress peerAddress, ServerNames virtualHost) {
+	public PskPublicInformation getIdentity(InetSocketAddress peerAddress, ServerNames virtualHost) {
 		return getIdentity(peerAddress);
 	}
 
 	@Override
-	public byte[] getKey(final String identity) {
+	public byte[] getKey(final PskPublicInformation identity) {
+		if (!fixedIdentity.equals(identity)) {
+			return null;
+		}
+		if (!identity.isUtf8Compliant()) {
+			identity.normalize(fixedIdentity.getPublicInfoAsString());
+		}
 		return key;
 	}
 
 	@Override
-	public byte[] getKey(final ServerNames serverNames, final String identity) {
+	public byte[] getKey(final ServerNames serverNames, final PskPublicInformation identity) {
 		return getKey(identity);
 	}
 }

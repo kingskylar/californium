@@ -21,7 +21,8 @@ import org.eclipse.californium.scandium.dtls.AlertMessage.AlertDescription;
 import org.eclipse.californium.scandium.dtls.AlertMessage.AlertLevel;
 import org.eclipse.californium.scandium.dtls.DTLSSession;
 import org.eclipse.californium.scandium.dtls.HandshakeException;
-import org.eclipse.californium.scandium.dtls.pskstore.PskStore;
+import org.eclipse.californium.scandium.dtls.PskPublicInformation;
+import org.eclipse.californium.scandium.dtls.pskstore.BytesPskStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +35,8 @@ public class PskUtil {
 	
 	private byte[] psk;
 	
+	private PskPublicInformation identity;
+	
 	private PreSharedKeyIdentity pskIdentity;
 	
 	/**
@@ -45,7 +48,7 @@ public class PskUtil {
 	 * @throws HandshakeException if no data is available for the provided session
 	 * @throws NullPointerException if either session or pskStore is {@code null}
 	 */
-	public PskUtil(boolean sniEnabled, DTLSSession session, PskStore pskStore) throws HandshakeException {
+	public PskUtil(boolean sniEnabled, DTLSSession session, BytesPskStore pskStore) throws HandshakeException {
 		if (session == null) {
 			throw new NullPointerException("Dtls session cannot be null");
 		}
@@ -53,7 +56,6 @@ public class PskUtil {
 			throw new NullPointerException("psk store cannot be null");
 		}
 		ServerNames virtualHost = session.getServerNames();
-		String identity = null;
 		if (sniEnabled && virtualHost != null) {
 			if (!session.isSniSupported()) {
 				LOGGER.warn("client is configured to use SNI but server does not support it, PSK authentication is likely to fail");
@@ -76,7 +78,7 @@ public class PskUtil {
 								virtualHostName, identity),
 						alert);
 			} 
-			this.pskIdentity = new PreSharedKeyIdentity(virtualHostName, identity);
+			this.pskIdentity = new PreSharedKeyIdentity(virtualHostName, identity.getPublicInfoAsString());
 		} else {
 			identity = pskStore.getIdentity(session.getPeer());
 			if (identity == null) {
@@ -91,9 +93,9 @@ public class PskUtil {
 						String.format("No pre-shared key found for [identity: %s]", identity), alert);
 			}
 			if (sniEnabled) {
-				this.pskIdentity = new PreSharedKeyIdentity(null, identity);
+				this.pskIdentity = new PreSharedKeyIdentity(null, identity.getPublicInfoAsString());
 			} else {
-				this.pskIdentity = new PreSharedKeyIdentity(identity);
+				this.pskIdentity = new PreSharedKeyIdentity(identity.getPublicInfoAsString());
 			}
 		}		
 	}
@@ -107,6 +109,11 @@ public class PskUtil {
 	public PreSharedKeyIdentity getPskIdentity() {
 		return this.pskIdentity;
 	}
+	
+	public PskPublicInformation getPskPublicIdentity() {
+		return this.identity;
+	}
+	
 	
 	/**
 	 * This method returns the pre shared key for the current 

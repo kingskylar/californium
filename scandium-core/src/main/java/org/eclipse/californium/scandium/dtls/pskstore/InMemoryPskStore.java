@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.eclipse.californium.elements.util.Bytes;
+import org.eclipse.californium.scandium.dtls.PskPublicInformation;
 import org.eclipse.californium.scandium.util.ServerName;
 import org.eclipse.californium.scandium.util.ServerNames;
 import org.eclipse.californium.scandium.util.ServerName.NameType;
@@ -39,27 +40,42 @@ import org.eclipse.californium.scandium.util.ServerName.NameType;
  * You are supposed to store your key in a secure way:
  * keeping them in-memory is not a good idea.
  */
-public class InMemoryPskStore implements PskStore {
+public class InMemoryPskStore implements BytesPskStore {
 
 	private static final ServerName GLOBAL_SCOPE = ServerName.from(NameType.UNDEFINED, Bytes.EMPTY);
 
-	private final Map<ServerName, Map<String, byte[]>> scopedKeys = new ConcurrentHashMap<>();
-	private final Map<InetSocketAddress, Map<ServerName, String>> scopedIdentities = new ConcurrentHashMap<>();
+	private static class Psk {
+
+		private final PskPublicInformation identity;
+		private final byte[] key;
+
+		private Psk(PskPublicInformation identity, byte[] key) {
+			this.identity = identity;
+			this.key = Arrays.copyOf(key, key.length);
+		}
+
+		private byte[] getKey() {
+			return Arrays.copyOf(key, key.length);
+		}
+	}
+
+	private final Map<ServerName, Map<PskPublicInformation, Psk>> scopedKeys = new ConcurrentHashMap<>();
+	private final Map<InetSocketAddress, Map<ServerName, PskPublicInformation>> scopedIdentities = new ConcurrentHashMap<>();
 
 	@Override
-	public byte[] getKey(final String identity) {
+	public byte[] getKey(final PskPublicInformation identity) {
 
 		if (identity == null) {
 			throw new NullPointerException("identity must not be null");
 		} else {
 			synchronized (scopedKeys) {
-				return getKeyFromMap(identity, scopedKeys.get(GLOBAL_SCOPE));
+				return getKeyFromMapAndNormalizeIdentity(identity, scopedKeys.get(GLOBAL_SCOPE));
 			}
 		}
 	}
 
 	@Override
-	public byte[] getKey(final ServerNames serverNames, final String identity) {
+	public byte[] getKey(final ServerNames serverNames, final PskPublicInformation identity) {
 
 		if (serverNames == null) {
 			return getKey(identity);
@@ -68,27 +84,31 @@ public class InMemoryPskStore implements PskStore {
 		} else {
 			synchronized (scopedKeys) {
 				for (ServerName serverName : serverNames) {
-					byte[] key = getKeyFromMap(identity, scopedKeys.get(serverName));
-					if (key != null) {
-						return key;
-					}
+					return getKeyFromMapAndNormalizeIdentity(identity, scopedKeys.get(serverName));
 				}
 				return null;
 			}
 		}
 	}
 
-	private static byte[] getKeyFromMap(final String identity, final Map<String, byte[]> keyMap) {
+	private static byte[] getKeyFromMapAndNormalizeIdentity(final PskPublicInformation identity,
+			final Map<PskPublicInformation, Psk> keyMap) {
 
-		byte[] result = null;
 		if (keyMap != null) {
-			byte[] key = keyMap.get(identity);
-			if (key != null) {
-				// defensive copy
-				result = Arrays.copyOf(key, key.length);
+			Psk psk = keyMap.get(identity);
+			if (psk != null) {
+				if (!identity.isUtf8Compliant()) {
+					identity.normalize(psk.identity.getPublicInfoAsString());
+				}
+				return psk.getKey();
 			}
 		}
-		return result;
+		return null;
+	}
+
+	public void setKey(final String identity, final byte[] key) {
+
+		setKey(new PskPublicInformation(identity), key, GLOBAL_SCOPE);
 	}
 
 	/**
@@ -101,22 +121,13 @@ public class InMemoryPskStore implements PskStore {
 	 * @param key
 	 *            the key used to authenticate the identity
 	 */
-	public void setKey(final String identity, final byte[] key) {
+	public void setKey(final PskPublicInformation identity, final byte[] key) {
 
 		setKey(identity, key, GLOBAL_SCOPE);
 	}
 
-	/**
-	 * Sets a key for an identity scoped to a virtual host.
-	 * <p>
-	 * If the key already exists, it will be replaced.
-	 * 
-	 * @param identity The identity to set the key for.
-	 * @param key The key to set for the identity.
-	 * @param virtualHost The virtual host to associate the identity and key with.
-	 */
 	public void setKey(final String identity, final byte[] key, final String virtualHost) {
-		setKey(identity, key, ServerName.fromHostName(virtualHost));
+		setKey(new PskPublicInformation(identity), key, ServerName.fromHostName(virtualHost));
 	}
 
 	/**
@@ -128,7 +139,24 @@ public class InMemoryPskStore implements PskStore {
 	 * @param key The key to set for the identity.
 	 * @param virtualHost The virtual host to associate the identity and key with.
 	 */
+	public void setKey(final PskPublicInformation identity, final byte[] key, final String virtualHost) {
+		setKey(identity, key, ServerName.fromHostName(virtualHost));
+	}
+
 	public void setKey(final String identity, final byte[] key, final ServerName virtualHost) {
+		setKey(new PskPublicInformation(identity), key, virtualHost);
+	}
+
+	/**
+	 * Sets a key for an identity scoped to a virtual host.
+	 * <p>
+	 * If the key already exists, it will be replaced.
+	 * 
+	 * @param identity The identity to set the key for.
+	 * @param key The key to set for the identity.
+	 * @param virtualHost The virtual host to associate the identity and key with.
+	 */
+	public void setKey(final PskPublicInformation identity, final byte[] key, final ServerName virtualHost) {
 
 		if (identity == null) {
 			throw new NullPointerException("identity must not be null");
@@ -138,14 +166,18 @@ public class InMemoryPskStore implements PskStore {
 			throw new NullPointerException("serverName must not be null");
 		} else {
 			synchronized (scopedKeys) {
-				Map<String, byte[]> keysForServerName = scopedKeys.get(virtualHost);
+				Map<PskPublicInformation, Psk> keysForServerName = scopedKeys.get(virtualHost);
 				if (keysForServerName == null) {
 					keysForServerName = new ConcurrentHashMap<>();
 					scopedKeys.put(virtualHost, keysForServerName);
 				}
-				keysForServerName.put(identity, Arrays.copyOf(key, key.length));
+				keysForServerName.put(identity, new Psk(identity, key));
 			}
 		}
+	}
+
+	public void addKnownPeer(final InetSocketAddress peerAddress, final String identity, final byte[] key) {
+		addKnownPeer(peerAddress,  GLOBAL_SCOPE, new PskPublicInformation(identity), key);
 	}
 
 	/**
@@ -158,9 +190,13 @@ public class InMemoryPskStore implements PskStore {
 	 * @param key the shared key
 	 * @throws NullPointerException if any of the parameters are {@code null}.
 	 */
-	public void addKnownPeer(final InetSocketAddress peerAddress, final String identity, final byte[] key) {
+	public void addKnownPeer(final InetSocketAddress peerAddress, final PskPublicInformation identity, final byte[] key) {
 
 		addKnownPeer(peerAddress, GLOBAL_SCOPE, identity, key);
+	}
+
+	public void addKnownPeer(final InetSocketAddress peerAddress, final String virtualHost, final String identity, final byte[] key) {
+		addKnownPeer(peerAddress, ServerName.fromHostName(virtualHost), new PskPublicInformation(identity), key);
 	}
 
 	/**
@@ -174,13 +210,13 @@ public class InMemoryPskStore implements PskStore {
 	 * @param key the shared key
 	 * @throws NullPointerException if any of the parameters are {@code null}.
 	 */
-	public void addKnownPeer(final InetSocketAddress peerAddress, final String virtualHost, final String identity, final byte[] key) {
+	public void addKnownPeer(final InetSocketAddress peerAddress, final String virtualHost, final PskPublicInformation identity, final byte[] key) {
 
 		addKnownPeer(peerAddress, ServerName.fromHostName(virtualHost), identity, key);
 	}
 
 	private void addKnownPeer(final InetSocketAddress peerAddress, final ServerName virtualHost,
-			final String identity, final byte[] key) {
+			final PskPublicInformation identity, final byte[] key) {
 
 		if (peerAddress == null) {
 			throw new NullPointerException("peer address must not be null");
@@ -192,7 +228,7 @@ public class InMemoryPskStore implements PskStore {
 			throw new NullPointerException("key must not be null");
 		} else {
 			synchronized (scopedKeys) {
-				Map<ServerName, String> identities = scopedIdentities.get(peerAddress);
+				Map<ServerName, PskPublicInformation> identities = scopedIdentities.get(peerAddress);
 				if (identities == null) {
 					identities = new ConcurrentHashMap<>();
 					scopedIdentities.put(peerAddress, identities);
@@ -204,7 +240,7 @@ public class InMemoryPskStore implements PskStore {
 	}
 
 	@Override
-	public String getIdentity(final InetSocketAddress peerAddress) {
+	public PskPublicInformation getIdentity(final InetSocketAddress peerAddress) {
 
 		if (peerAddress == null) {
 			throw new NullPointerException("address must not be null");
@@ -216,7 +252,7 @@ public class InMemoryPskStore implements PskStore {
 	}
 
 	@Override
-	public String getIdentity(final InetSocketAddress peerAddress, final ServerNames virtualHost) {
+	public PskPublicInformation getIdentity(final InetSocketAddress peerAddress, final ServerNames virtualHost) {
 
 		if (virtualHost == null) {
 			return getIdentity(peerAddress);
@@ -225,7 +261,7 @@ public class InMemoryPskStore implements PskStore {
 		} else {
 			synchronized (scopedKeys) {
 				for (ServerName serverName : virtualHost) {
-					String identity = getIdentityFromMap(serverName, scopedIdentities.get(peerAddress));
+					PskPublicInformation identity = getIdentityFromMap(serverName, scopedIdentities.get(peerAddress));
 					if (identity != null) {
 						return identity;
 					}
@@ -235,7 +271,7 @@ public class InMemoryPskStore implements PskStore {
 		}
 	}
 
-	private static String getIdentityFromMap(final ServerName virtualHost, final Map<ServerName, String> identities) {
+	private static PskPublicInformation getIdentityFromMap(final ServerName virtualHost, final Map<ServerName, PskPublicInformation> identities) {
 
 		if (identities != null) {
 			return identities.get(virtualHost);
