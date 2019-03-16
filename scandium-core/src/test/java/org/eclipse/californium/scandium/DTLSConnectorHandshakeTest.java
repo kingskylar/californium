@@ -20,6 +20,7 @@ package org.eclipse.californium.scandium;
 
 import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.*;
+import static org.junit.Assume.*;
 import static org.eclipse.californium.scandium.ConnectorHelper.*;
 
 import java.io.IOException;
@@ -550,6 +551,7 @@ public class DTLSConnectorHandshakeTest {
 
 	@Test
 	public void testPsk256Ccm8Handshake() throws Exception {
+		assumeTrue("AES256 requires JVM support!", CipherSuite.TLS_PSK_WITH_AES_256_CCM_8.isSupported());
 		startServer(false, false,  false,  null);
 		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder()
 				.setPskStore(new StaticPskStore(CLIENT_IDENTITY, CLIENT_IDENTITY_SECRET.getBytes()))
@@ -570,6 +572,7 @@ public class DTLSConnectorHandshakeTest {
 
 	@Test
 	public void testPsk256CcmHandshake() throws Exception {
+		assumeTrue("AES256 requires JVM support!", CipherSuite.TLS_PSK_WITH_AES_256_CCM.isSupported());
 		startServer(false, false,  false,  null);
 		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder()
 				.setPskStore(new StaticPskStore(CLIENT_IDENTITY, CLIENT_IDENTITY_SECRET.getBytes()))
@@ -602,6 +605,7 @@ public class DTLSConnectorHandshakeTest {
 
 	@Test
 	public void testRpk256Ccm8Handshake() throws Exception {
+		assumeTrue("AES256 requires JVM support!", CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CCM_8.isSupported());
 		startServer(false, false, false, null);
 		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder()
 				.setRpkTrustAll()
@@ -624,6 +628,7 @@ public class DTLSConnectorHandshakeTest {
 
 	@Test
 	public void testRpk256CcmHandshake() throws Exception {
+		assumeTrue("AES256 requires JVM support!", CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CCM.isSupported());
 		startServer(false, false, false, null);
 		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder()
 				.setRpkTrustAll()
@@ -635,6 +640,7 @@ public class DTLSConnectorHandshakeTest {
 
 	@Test
 	public void testRpk256CbcHandshake() throws Exception {
+		assumeTrue("AES256 requires JVM support!", CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA.isSupported());
 		startServer(false, false, false, null);
 		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder()
 				.setRpkTrustAll()
@@ -646,6 +652,7 @@ public class DTLSConnectorHandshakeTest {
 
 	@Test
 	public void testRpk256Cbc384Handshake() throws Exception {
+		assumeTrue("AES256 requires JVM support!", CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384.isSupported());
 		startServer(false, false, false, null);
 		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder()
 				.setRpkTrustAll()
@@ -653,5 +660,17 @@ public class DTLSConnectorHandshakeTest {
 				.setSupportedCipherSuites(CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384);
 		startClient(false,  null, builder);
 		assertThat(serverHelper.establishedServerSession.getCipherSuite(), is(CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384));
+	}
+
+	@Test
+	public void testRpk128GcmHandshake() throws Exception {
+		assumeTrue("GCM requires JVM support!", CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256.isSupported());
+		startServer(false, false, false, null);
+		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder()
+				.setRpkTrustAll()
+				.setIdentity(DtlsTestTools.getClientPrivateKey(), DtlsTestTools.getClientPublicKey())
+				.setSupportedCipherSuites(CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256);
+		startClient(false,  null, builder);
+		assertThat(serverHelper.establishedServerSession.getCipherSuite(), is(CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256));
 	}
 }

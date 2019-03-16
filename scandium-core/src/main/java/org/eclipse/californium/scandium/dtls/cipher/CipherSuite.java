@@ -373,6 +373,25 @@ public enum CipherSuite {
 	}
 
 	/**
+	 * Get list of supported cipher suites.
+	 * 
+	 * Some cipher suites are not supported by all JVM (especially java 1.7).
+	 * 
+	 * @param cipherSuites list of cipher suites to be filtered based on
+	 *            {@link #isSupported()}.
+	 * @return list of supported cipher suites
+	 */
+	public static List<CipherSuite> getSupportedCipherSuites(List<CipherSuite> cipherSuites) {
+		List<CipherSuite> list = new ArrayList<>();
+		for (CipherSuite suite : cipherSuites) {
+			if (suite.isSupported()) {
+				list.add(suite);
+			}
+		}
+		return list;
+	}
+
+	/**
 	 * Get a list of all supported PSK cipher suites.
 	 * 
 	 * @param extendedCipherSuites use also extended cipher suites
@@ -671,7 +690,7 @@ public enum CipherSuite {
 			this.recordIvLength = recordIvLength;
 			this.macLength = macLength;
 			if (type == CipherType.AEAD || type == CipherType.BLOCK) {
-				this.supported = AeadBlockCipher.isSupported(transformation);
+				this.supported = AeadBlockCipher.isSupported(transformation, keyLength);
 			} else {
 				this.supported = true;
 			}
