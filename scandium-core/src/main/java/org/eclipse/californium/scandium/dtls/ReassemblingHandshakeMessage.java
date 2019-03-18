@@ -54,22 +54,6 @@ public final class ReassemblingHandshakeMessage extends HandshakeMessage {
 		}
 
 		/**
-		 * Reduce end.
-		 * 
-		 * @param end new lower end. Same of higher end is ignored
-		 * @throws IllegalArgumentException if new end is before offset.
-		 */
-		private void reduceEnd(int end) {
-			if (this.end > end) {
-				if (end < this.offset) {
-					throw new IllegalArgumentException("adjusted end before offset!");
-				}
-				this.end = end;
-				this.length = this.end - this.offset;
-			}
-		}
-
-		/**
 		 * Amend end.
 		 * 
 		 * @param end new higher end. Same or lower end is ignored.
@@ -79,30 +63,6 @@ public final class ReassemblingHandshakeMessage extends HandshakeMessage {
 				this.end = end;
 				this.length = this.end - this.offset;
 			}
-		}
-
-		/**
-		 * Skip offset.
-		 * 
-		 * @param offset new higher offset. Same or lower offset is ignored.
-		 * @return number of skipped bytes
-		 */
-		private int skipToOffset(int offset) {
-			int skip = 0;
-			if (this.offset < offset) {
-				if (this.end <= offset) {
-					// new offset after end => empty range
-					this.length = 0;
-					this.offset = offset;
-					this.end = offset;
-				} else {
-					skip = offset - this.offset;
-					this.offset = offset;
-					this.length = this.end - this.offset;
-				}
-			}
-
-			return skip;
 		}
 
 		@Override
@@ -122,7 +82,7 @@ public final class ReassemblingHandshakeMessage extends HandshakeMessage {
 		setMessageSeq(message.getMessageSeq());
 		this.type = message.getMessageType();
 		this.reassembledBytes = new byte[message.getMessageLength()];
-		add(0, 0, new FragmentRange(message.getFragmentOffset(), message.getFragmentLength()), message);
+		add(0, new FragmentRange(message.getFragmentOffset(), message.getFragmentLength()), message);
 	}
 
 	/**
@@ -171,41 +131,22 @@ public final class ReassemblingHandshakeMessage extends HandshakeMessage {
 			throw new IllegalArgumentException(
 					"Fragment message " + newRange.end + " bytes exceeds message " + getMessageLength() + " bytes!");
 		}
-		int end = 0;
+		// find range position
 		int position = 0;
 		for (; position < fragments.size(); ++position) {
 			FragmentRange currentRange = fragments.get(position);
-			if (newRange.offset < currentRange.offset) {
-				if (currentRange.offset < newRange.end && newRange.end <= currentRange.end) {
-					// overlap [new [cur new) cur)
-					// reduce range to [new cur)
-					newRange.reduceEnd(currentRange.offset);
-				}
+			if (newRange.offset <= currentRange.offset) {
+				// we find the position
 				break;
 			} else if (newRange.end <= currentRange.end) {
-				// overlap [cur [new  new) cur) or
-				// overlap [cur=new  new) cur)
-				// already reassembled
+				// overlap, already assembled
 				return;
-			} else if (newRange.offset == currentRange.offset) {
-				// overlap [cur=new  cur) new)
-				// add after current range
-				++position;
-				break;
 			}
-			end = currentRange.end;
-		}
-		// check for overlap [cur [new cur) new)
-		// skip offset to [cur.end new)
-		int skip = newRange.skipToOffset(end);
-		if (newRange.length == 0) {
-			// no bytes left, fragments data already reassembled
-			return;
 		}
 		// add new data
-		add(position, skip, newRange, message);
-		FragmentRange currentRange = fragments.get(0);
+		add(position, newRange, message);
 		// try to merge adjacent ranges
+		FragmentRange currentRange = fragments.get(0);
 		for (position = 1; position < fragments.size(); ++position) {
 			FragmentRange nextRange = fragments.get(position);
 			if (nextRange.offset <= currentRange.end) {
@@ -224,15 +165,14 @@ public final class ReassemblingHandshakeMessage extends HandshakeMessage {
 	 * Add range and position and copy fragment
 	 * 
 	 * @param position position to add range
-	 * @param skip number of skipped bytes from message
 	 * @param range range to add
 	 * @param message fragment to copy
 	 * @see #fragments
 	 * @see #reassembledBytes
 	 */
-	private void add(int position, int skip, FragmentRange range, FragmentedHandshakeMessage message) {
+	private void add(int position, FragmentRange range, FragmentedHandshakeMessage message) {
 		fragments.add(position, range);
-		System.arraycopy(message.fragmentToByteArray(), skip, reassembledBytes, range.offset, range.length);
+		System.arraycopy(message.fragmentToByteArray(), 0, reassembledBytes, range.offset, range.length);
 	}
 
 	@Override
